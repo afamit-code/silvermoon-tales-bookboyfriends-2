@@ -1,7 +1,9 @@
 exports.handler = async function () {
   const clientId = process.env.PATREON_CLIENT_ID;
-  const redirectUri = process.env.PATREON_REDIRECT_URI;
-
+  
+  // Hardcoded to the correct Netlify callback function
+  const redirectUri = 'https://silvermoontalesbookboyfriends.netlify.app/.netlify/functions/patreon-callback';
+  
   const scopes = [
     "identity",
     "identity[email]",
