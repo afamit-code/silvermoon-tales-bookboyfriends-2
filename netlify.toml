@@ -1,7 +1,3 @@
-silvermoon tales/
-  index.html
-  netlify.toml
-  netlify/
-    functions/
-      patreon-login.js
-      patreon-callback.js
+[build]
+  publish = "."
+  functions = "netlify/functions"
