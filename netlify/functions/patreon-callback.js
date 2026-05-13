@@ -1,140 +1,133 @@
 const crypto = require("crypto");
 
-function createAccessToken() {
-  const secret = process.env.PATREON_CLIENT_SECRET;
+function createAccessToken(secret) {
   const expiresAt = Date.now() + 1000 * 60 * 60 * 24 * 7;
-
-  const payload = JSON.stringify({
-    access: true,
-    expiresAt
-  });
-
+  const payload = JSON.stringify({ access: true, expiresAt });
   const signature = crypto
     .createHmac("sha256", secret)
     .update(payload)
     .digest("hex");
-
-  const token = Buffer.from(
-    JSON.stringify({
-      payload,
-      signature
-    })
-  ).toString("base64");
-
-  return token;
+  return Buffer.from(JSON.stringify({ payload, signature })).toString("base64");
 }
 
 exports.handler = async function (event) {
-  const code = event.queryStringParameters.code;
+  const code = event.queryStringParameters && event.queryStringParameters.code;
+  const siteUrl = "https://silvermoontalesbookboyfriends.netlify.app";
+
+  // Hardcoded redirect URI — must exactly match Patreon portal and login.js
+  const redirectUri = siteUrl + "/.netlify/functions/patreon-callback";
 
   if (!code) {
     return {
-      statusCode: 400,
-      body: "Missing Patreon authorization code."
+      statusCode: 302,
+      headers: { Location: siteUrl + "/?patreon=error" }
     };
   }
 
   const clientId = process.env.PATREON_CLIENT_ID;
   const clientSecret = process.env.PATREON_CLIENT_SECRET;
-  const redirectUri = process.env.PATREON_REDIRECT_URI;
   const allowedTierId = process.env.PATREON_ALLOWED_TIER_ID;
-  const siteUrl =
-    process.env.SITE_URL ||
-    "https://silvermoontalesbookboyfriends.netlify.app";
 
   try {
-    const tokenResponse = await fetch(
-      "https://www.patreon.com/api/oauth2/token",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: new URLSearchParams({
-          code,
-          grant_type: "authorization_code",
-          client_id: clientId,
-          client_secret: clientSecret,
-          redirect_uri: redirectUri
-        })
-      }
-    );
+    // Step 1: Exchange code for access token
+    const tokenResponse = await fetch("https://www.patreon.com/api/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        grant_type: "authorization_code",
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri
+      })
+    });
 
     const tokenData = await tokenResponse.json();
 
-    if (!tokenResponse.ok) {
-      console.error("Token error:", tokenData);
+    if (!tokenResponse.ok || !tokenData.access_token) {
+      console.error("Token exchange failed:", JSON.stringify(tokenData));
       return {
-        statusCode: 401,
-        body: "Could not authenticate with Patreon."
+        statusCode: 302,
+        headers: { Location: siteUrl + "/?patreon=error" }
       };
     }
 
     const accessToken = tokenData.access_token;
 
+    // Step 2: Get identity and memberships
     const identityUrl =
       "https://www.patreon.com/api/oauth2/v2/identity" +
       "?include=memberships,memberships.currently_entitled_tiers" +
+      "&fields%5Buser%5D=full_name,email" +
       "&fields%5Bmember%5D=patron_status" +
       "&fields%5Btier%5D=title,amount_cents";
 
     const identityResponse = await fetch(identityUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      }
+      headers: { Authorization: "Bearer " + accessToken }
     });
 
     const identityData = await identityResponse.json();
-
-    console.log("PATREON IDENTITY DATA:", JSON.stringify(identityData, null, 2));
+    console.log("PATREON IDENTITY:", JSON.stringify(identityData, null, 2));
 
     if (!identityResponse.ok) {
-      console.error("Identity error:", identityData);
+      console.error("Identity fetch failed:", JSON.stringify(identityData));
       return {
-        statusCode: 401,
-        body: "Could not verify Patreon membership."
+        statusCode: 302,
+        headers: { Location: siteUrl + "/?patreon=error" }
       };
     }
 
+    // Get user name
+    const userName =
+      identityData.data &&
+      identityData.data.attributes &&
+      identityData.data.attributes.full_name
+        ? identityData.data.attributes.full_name
+        : "Member";
+
     const included = identityData.included || [];
 
-    const activeMembership = included.find(
+    // Check active patron status
+    const isActiveMember = included.some(
       (item) =>
         item.type === "member" &&
         item.attributes &&
         item.attributes.patron_status === "active_patron"
     );
 
-    const entitledTier = included.find(
-      (item) =>
-        item.type === "tier" &&
-        item.id === allowedTierId
-    );
+    // Check tier if PATREON_ALLOWED_TIER_ID is set
+    const hasTier = allowedTierId
+      ? included.some(
+          (item) => item.type === "tier" && item.id === allowedTierId
+        )
+      : true; // If no tier ID set, allow all active members
 
-    if (!activeMembership || !entitledTier) {
+    if (!isActiveMember || !hasTier) {
+      console.log("Access denied — isActiveMember:", isActiveMember, "hasTier:", hasTier);
       return {
         statusCode: 302,
-        headers: {
-          Location: `${siteUrl}/locked`
-        }
+        headers: { Location: siteUrl + "/?patreon=error" }
       };
     }
 
-    const accessCookie = createAccessToken();
+    // Step 3: Grant access — set cookie AND redirect with success params
+    // Cookie for server-side validation (future use)
+    const accessCookie = createAccessToken(clientSecret);
 
+    // Redirect with success params so the app JS can detect login
     return {
       statusCode: 302,
       headers: {
         "Set-Cookie": `smt_patreon_access=${accessCookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}`,
-        Location: `${siteUrl}/`
+        Location: siteUrl + "/?patreon=success&name=" + encodeURIComponent(userName)
       }
     };
+
   } catch (error) {
     console.error("Patreon callback error:", error);
-
     return {
-      statusCode: 500,
-      body: "Something went wrong while checking Patreon access."
+      statusCode: 302,
+      headers: { Location: siteUrl + "/?patreon=error" }
     };
   }
 };
