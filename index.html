@@ -292,7 +292,7 @@ nav { position:fixed; bottom:0; left:0; right:0; background:rgba(6,7,16,0.97); b
 </div>
 
 <!-- NOTIFICATION PERMISSION CARD -->
-<div id="notifCard" class="hidden" style="position:fixed;inset:0;z-index:350;background:rgba(6,7,16,0.92);display:flex;align-items:flex-end;justify-content:center;padding:24px;">
+<div id="notifCard" class="hidden" style="position:fixed;inset:0;z-index:350;background:rgba(6,7,16,0.92);display:none;align-items:flex-end;justify-content:center;padding:24px;">
   <div style="background:#0b0d1a;border:1px solid rgba(201,168,76,0.3);border-radius:20px;padding:28px 24px;max-width:400px;width:100%;text-align:center;">
     <div style="font-size:40px;margin-bottom:14px">🌙</div>
     <div style="font-family:'Cinzel',serif;font-size:14px;letter-spacing:0.2em;color:#c8d4e8;margin-bottom:10px;">MORNING MESSAGES</div>
@@ -1273,12 +1273,18 @@ function initServiceWorker() {
 
 function showNotifCard() {
   var card = document.getElementById('notifCard');
-  if (card) card.classList.remove('hidden');
+  if (card) {
+    card.classList.remove('hidden');
+    card.style.display = 'flex';
+  }
 }
 
 function dismissNotifCard() {
   var card = document.getElementById('notifCard');
-  if (card) card.classList.add('hidden');
+  if (card) {
+    card.classList.add('hidden');
+    card.style.display = 'none';
+  }
   try { localStorage.setItem('sm_notif_enabled', 'false'); } catch(e) {}
 }
 
@@ -1310,10 +1316,12 @@ async function requestNotifPermission() {
         })
       });
       try { localStorage.setItem('sm_notif_enabled', 'true'); } catch(e) {}
-      dismissNotifCard();
+      var card = document.getElementById('notifCard');
+      if (card) { card.style.display = 'none'; card.classList.add('hidden'); }
       showNotifSuccess();
     } else {
-      dismissNotifCard();
+      var card = document.getElementById('notifCard');
+      if (card) { card.style.display = 'none'; card.classList.add('hidden'); }
       try { localStorage.setItem('sm_notif_enabled', 'false'); } catch(e) {}
     }
   } catch(err) {
