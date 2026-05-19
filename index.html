@@ -1384,12 +1384,11 @@ initServiceWorker();
 
 // ── PATREON AUTH ─────────────────────────────────────────
 function checkPatreonSession() {
-  // Check if we have a valid session from Netlify function callback
+  // First check if we already have a valid saved session
   try {
     var session = localStorage.getItem('sm_patreon_session');
     if (session) {
       var data = JSON.parse(session);
-      // Check session is not expired (24 hours)
       if (data.expires && Date.now() < data.expires) {
         enterApp(data.name || 'Member');
         return true;
@@ -1399,24 +1398,36 @@ function checkPatreonSession() {
     }
   } catch(e) {}
 
-  // Check URL params - Netlify function redirects back with ?patreon=success&name=X
   var params = new URLSearchParams(window.location.search);
+
+  // Handle success — save session immediately
   if (params.get('patreon') === 'success') {
     var name = params.get('name') || 'Member';
-    // Save session for 24 hours
     try {
       localStorage.setItem('sm_patreon_session', JSON.stringify({
         name: name,
+        tier: params.get('tier') || 'silvermoon',
         expires: Date.now() + (24 * 60 * 60 * 1000)
       }));
     } catch(e) {}
-    // Clean URL
     window.history.replaceState({}, document.title, window.location.pathname);
     enterApp(name);
     return true;
   }
 
+  // Handle error — but check if a session was just saved (double-callback protection)
   if (params.get('patreon') === 'error') {
+    try {
+      var existingSession = localStorage.getItem('sm_patreon_session');
+      if (existingSession) {
+        var existing = JSON.parse(existingSession);
+        if (existing.expires && Date.now() < existing.expires) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+          enterApp(existing.name || 'Member');
+          return true;
+        }
+      }
+    } catch(e) {}
     document.getElementById('pgError').textContent = 'Access denied. Please make sure you are a current Patreon member.';
     window.history.replaceState({}, document.title, window.location.pathname);
   }
