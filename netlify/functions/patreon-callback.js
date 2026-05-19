@@ -13,8 +13,6 @@ function createAccessToken(secret) {
 exports.handler = async function (event) {
   const code = event.queryStringParameters && event.queryStringParameters.code;
   const siteUrl = "https://silvermoontalesbookboyfriends.netlify.app";
-
-  // Hardcoded redirect URI — must exactly match Patreon portal and login.js
   const redirectUri = siteUrl + "/.netlify/functions/patreon-callback";
 
   if (!code) {
@@ -87,23 +85,22 @@ exports.handler = async function (event) {
 
     const included = identityData.included || [];
 
-    // Check active patron status
- const isActiveMember = included.some(
-  (item) =>
-    item.type === "member" &&
-    item.attributes &&
-    (item.attributes.patron_status === "active_patron" ||
-     item.attributes.patron_status === "former_patron")
-);
+    // Check patron status — allow active and former_patron
+    // (creators show as former_patron on their own page)
+    const isActiveMember = included.some(
+      (item) =>
+        item.type === "member" &&
+        item.attributes &&
+        (item.attributes.patron_status === "active_patron" ||
+         item.attributes.patron_status === "former_patron")
+    );
 
-if (!isActiveMember || !hasTier) {
-
-    // Check tier if PATREON_ALLOWED_TIER_ID is set
+    // Check tier — if PATREON_ALLOWED_TIER_ID is set, verify they have it
     const hasTier = allowedTierId
       ? included.some(
           (item) => item.type === "tier" && item.id === allowedTierId
         )
-      : true; // If no tier ID set, allow all active members
+      : true;
 
     if (!isActiveMember || !hasTier) {
       console.log("Access denied — isActiveMember:", isActiveMember, "hasTier:", hasTier);
@@ -113,11 +110,9 @@ if (!isActiveMember || !hasTier) {
       };
     }
 
-    // Step 3: Grant access — set cookie AND redirect with success params
-    // Cookie for server-side validation (future use)
+    // Step 3: Grant access
     const accessCookie = createAccessToken(clientSecret);
 
-    // Redirect with success params so the app JS can detect login
     return {
       statusCode: 302,
       headers: {
