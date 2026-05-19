@@ -60,13 +60,14 @@ exports.handler = async function (event) {
 
     const included = identityData.included || [];
 
+    // Active patrons only — no former members
     const isActiveMember = included.some(function(item) {
       return item.type === "member" &&
         item.attributes &&
-        (item.attributes.patron_status === "active_patron" ||
-         item.attributes.patron_status === "former_patron");
+        item.attributes.patron_status === "active_patron";
     });
 
+    // Check tier if PATREON_ALLOWED_TIER_ID is set
     const hasTier = allowedTierId
       ? included.some(function(item) { return item.type === "tier" && item.id === allowedTierId; })
       : true;
