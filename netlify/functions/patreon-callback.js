@@ -1,12 +1,3 @@
-const crypto = require("crypto");
-
-function createAccessToken(secret) {
-  const expiresAt = Date.now() + 1000 * 60 * 60 * 24 * 7;
-  const payload = JSON.stringify({ access: true, expiresAt });
-  const signature = crypto.createHmac("sha256", secret).update(payload).digest("hex");
-  return Buffer.from(JSON.stringify({ payload, signature })).toString("base64");
-}
-
 exports.handler = async function (event) {
   const code = event.queryStringParameters && event.queryStringParameters.code;
   const siteUrl = "https://silvermoontalesbookboyfriends.netlify.app";
@@ -57,7 +48,6 @@ exports.handler = async function (event) {
     console.log("PATREON IDENTITY:", JSON.stringify(identityData, null, 2));
 
     if (!identityResponse.ok) {
-      console.error("Identity fetch failed:", JSON.stringify(identityData));
       return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=error" } };
     }
 
@@ -70,30 +60,26 @@ exports.handler = async function (event) {
 
     const included = identityData.included || [];
 
-    const isActiveMember = included.some(
-      (item) =>
-        item.type === "member" &&
+    const isActiveMember = included.some(function(item) {
+      return item.type === "member" &&
         item.attributes &&
         (item.attributes.patron_status === "active_patron" ||
-         item.attributes.patron_status === "former_patron")
-    );
+         item.attributes.patron_status === "former_patron");
+    });
 
     const hasTier = allowedTierId
-      ? included.some((item) => item.type === "tier" && item.id === allowedTierId)
+      ? included.some(function(item) { return item.type === "tier" && item.id === allowedTierId; })
       : true;
 
-    console.log("Access check — isActiveMember:", isActiveMember, "hasTier:", hasTier, "allowedTierId:", allowedTierId);
+    console.log("isActiveMember:", isActiveMember, "hasTier:", hasTier, "allowedTierId:", allowedTierId);
 
     if (!isActiveMember || !hasTier) {
       return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=error" } };
     }
 
-    const accessCookie = createAccessToken(clientSecret);
-
     return {
       statusCode: 302,
       headers: {
-        "Set-Cookie": `smt_patreon_access=${accessCookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}`,
         Location: siteUrl + "/?patreon=success&name=" + encodeURIComponent(userName)
       }
     };
