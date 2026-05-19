@@ -88,12 +88,15 @@ exports.handler = async function (event) {
     const included = identityData.included || [];
 
     // Check active patron status
-    const isActiveMember = included.some(
-      (item) =>
-        item.type === "member" &&
-        item.attributes &&
-        item.attributes.patron_status === "active_patron"
-    );
+ const isActiveMember = included.some(
+  (item) =>
+    item.type === "member" &&
+    item.attributes &&
+    (item.attributes.patron_status === "active_patron" ||
+     item.attributes.patron_status === "former_patron")
+);
+
+if (!isActiveMember || !hasTier) {
 
     // Check tier if PATREON_ALLOWED_TIER_ID is set
     const hasTier = allowedTierId
