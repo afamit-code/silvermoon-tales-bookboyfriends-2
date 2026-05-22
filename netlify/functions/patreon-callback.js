@@ -10,14 +10,12 @@ exports.handler = async function (event) {
   const clientId = process.env.PATREON_CLIENT_ID;
   const clientSecret = process.env.PATREON_CLIENT_SECRET;
 
-  // All three tier IDs — Silvermoon, Starfall, Bonded
   const TIER_MAP = {
     "26633221": "silvermoon",
     "28589346": "starfall",
     "28589553": "bonded"
   };
 
-  // Creator account — always gets Bonded access
   const CREATOR_ID = "182538518";
 
   try {
@@ -66,71 +64,86 @@ exports.handler = async function (event) {
         ? identityData.data.attributes.full_name
         : "Member";
 
-    // ── CREATOR BYPASS ──────────────────────────────────────
-    if (userId === CREATOR_ID) {
-      console.log("Creator account detected — granting Bonded access");
-      return {
-        statusCode: 302,
-        headers: {
-          Location: siteUrl
-            + "/?patreon=success"
-            + "&name=" + encodeURIComponent(userName)
-            + "&tier=bonded"
-            + "&token=" + encodeURIComponent(accessToken)
-        }
-      };
-    }
-
-    // ── MEMBER CHECK ────────────────────────────────────────
-    const included = identityData.included || [];
-
-    // Check for active patron status
-    const isActiveMember = included.some(function (item) {
-      return item.type === "member" &&
-        item.attributes &&
-        item.attributes.patron_status === "active_patron";
-    });
-
-    // Find which tier they are on
     let userTier = null;
-    included.forEach(function (item) {
-      if (item.type === "tier" && TIER_MAP[item.id]) {
-        userTier = TIER_MAP[item.id];
-      }
-    });
 
-    // Also check memberships for tier via relationships
-    if (!userTier) {
-      const members = included.filter(function (item) { return item.type === "member"; });
-      members.forEach(function (member) {
-        const tiers = member.relationships &&
-          member.relationships.currently_entitled_tiers &&
-          member.relationships.currently_entitled_tiers.data || [];
-        tiers.forEach(function (t) {
-          if (TIER_MAP[t.id]) userTier = TIER_MAP[t.id];
-        });
+    // Creator bypass
+    if (userId === CREATOR_ID) {
+      console.log("Creator account — granting Bonded access");
+      userTier = "bonded";
+    } else {
+      const included = identityData.included || [];
+      const isActiveMember = included.some(function (item) {
+        return item.type === "member" &&
+          item.attributes &&
+          item.attributes.patron_status === "active_patron";
       });
+
+      if (!isActiveMember) {
+        console.log("Not an active patron");
+        return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=notmember" } };
+      }
+
+      // Find tier from included tiers
+      included.forEach(function (item) {
+        if (item.type === "tier" && TIER_MAP[item.id]) {
+          userTier = TIER_MAP[item.id];
+        }
+      });
+
+      // Also check via member relationships
+      if (!userTier) {
+        included.filter(i => i.type === "member").forEach(function (member) {
+          const tiers = member.relationships &&
+            member.relationships.currently_entitled_tiers &&
+            member.relationships.currently_entitled_tiers.data || [];
+          tiers.forEach(function (t) {
+            if (TIER_MAP[t.id]) userTier = TIER_MAP[t.id];
+          });
+        });
+      }
+
+      if (!userTier) {
+        console.log("No matching tier found");
+        return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=notmember" } };
+      }
     }
 
-    console.log("isActiveMember:", isActiveMember, "userTier:", userTier);
+    console.log("isActiveMember: true userTier:", userTier);
 
-    if (!isActiveMember || !userTier) {
-      console.log("Access denied — not an active patron with a valid tier");
-      return {
-        statusCode: 302,
-        headers: { Location: siteUrl + "/?patreon=notmember" }
-      };
-    }
+    // Build session data
+    const sessionData = {
+      token: accessToken,
+      name: userName,
+      tier: userTier,
+      expires: Date.now() + 7 * 24 * 60 * 60 * 1000
+    };
+
+    const sessionJson = encodeURIComponent(JSON.stringify(sessionData));
+
+    // Return an HTML page that saves to localStorage and redirects
+    // This is more reliable than URL params which can get lost
+    const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Logging in...</title></head>
+<body>
+<script>
+try {
+  var session = ${JSON.stringify(sessionData)};
+  localStorage.setItem('sm_session', JSON.stringify(session));
+  console.log('Session saved:', session.name, session.tier);
+} catch(e) {
+  console.error('Could not save session', e);
+}
+window.location.href = '/';
+</script>
+<p style="font-family:sans-serif;text-align:center;margin-top:40px;color:#888">Logging you in...</p>
+</body>
+</html>`;
 
     return {
-      statusCode: 302,
-      headers: {
-        Location: siteUrl
-          + "/?patreon=success"
-          + "&name=" + encodeURIComponent(userName)
-          + "&tier=" + userTier
-          + "&token=" + encodeURIComponent(accessToken)
-      }
+      statusCode: 200,
+      headers: { 'Content-Type': 'text/html' },
+      body: html
     };
 
   } catch (error) {
