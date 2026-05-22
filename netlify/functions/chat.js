@@ -4,6 +4,7 @@ exports.handler = async function(event) {
   }
   try {
     const { system, messages, max_tokens } = JSON.parse(event.body);
+    
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -18,7 +19,13 @@ exports.handler = async function(event) {
         messages: messages
       })
     });
+    
     const data = await response.json();
+    
+    // Log the full response so we can debug
+    console.log('API STATUS:', response.status);
+    console.log('API RESPONSE:', JSON.stringify(data));
+    
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
