@@ -4,7 +4,7 @@ exports.handler = async function (event) {
   const redirectUri = siteUrl + "/.netlify/functions/patreon-callback";
 
   if (!code) {
-    return { statusCode: 302, headers: { Location: siteUrl + "/#patreon=error" } };
+    return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=error" } };
   }
 
   const clientId = process.env.PATREON_CLIENT_ID;
@@ -25,7 +25,7 @@ exports.handler = async function (event) {
     const tokenData = await tokenResponse.json();
     if (!tokenResponse.ok || !tokenData.access_token) {
       console.error("Token exchange failed:", JSON.stringify(tokenData));
-      return { statusCode: 302, headers: { Location: siteUrl + "/#patreon=error" } };
+      return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=error" } };
     }
 
     const accessToken = tokenData.access_token;
@@ -49,7 +49,7 @@ exports.handler = async function (event) {
         i.type==="member" && i.attributes?.patron_status==="active_patron"
       );
       if (!isActive) {
-        return { statusCode: 302, headers: { Location: siteUrl + "/#patreon=notmember" } };
+        return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=notmember" } };
       }
       included.forEach(i => { if(i.type==="tier" && TIER_MAP[i.id]) userTier=TIER_MAP[i.id]; });
       if (!userTier) {
@@ -60,27 +60,26 @@ exports.handler = async function (event) {
         });
       }
       if (!userTier) {
-        return { statusCode: 302, headers: { Location: siteUrl + "/#patreon=notmember" } };
+        return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=notmember" } };
       }
     }
 
     console.log("SUCCESS - userTier:", userTier, "userName:", userName);
 
-    // Use URL hash — never sent to server, survives redirects, no caching issues
-    const hashData = [
-      'patreon=success',
-      'name=' + encodeURIComponent(userName),
-      'tier=' + userTier,
-      'expires=' + (Date.now() + 7*24*60*60*1000)
-    ].join('&');
-
+    // Simple query param redirect - read by early head script in index.html
     return {
       statusCode: 302,
-      headers: { Location: siteUrl + '/#' + hashData }
+      headers: {
+        Location: siteUrl +
+          '/?patreon=success' +
+          '&name=' + encodeURIComponent(userName) +
+          '&tier=' + userTier +
+          '&t=' + encodeURIComponent(accessToken.substring(0, 20))
+      }
     };
 
   } catch(err) {
     console.error("Callback error:", err);
-    return { statusCode: 302, headers: { Location: siteUrl + "/#patreon=error" } };
+    return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=error" } };
   }
 };
