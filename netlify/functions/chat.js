@@ -2,10 +2,8 @@ exports.handler = async function(event) {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method not allowed' };
   }
-
   try {
-    const { system, messages } = JSON.parse(event.body);
-
+    const { system, messages, max_tokens } = JSON.parse(event.body);
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -15,19 +13,17 @@ exports.handler = async function(event) {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 600,
+        max_tokens: max_tokens || 60,
         system: system,
         messages: messages
       })
     });
-
     const data = await response.json();
     return {
       statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
       body: JSON.stringify(data)
     };
-
   } catch (error) {
     console.error('Chat error:', error);
     return {
