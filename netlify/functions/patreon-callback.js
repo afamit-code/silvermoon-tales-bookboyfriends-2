@@ -9,7 +9,16 @@ exports.handler = async function (event) {
 
   const clientId = process.env.PATREON_CLIENT_ID;
   const clientSecret = process.env.PATREON_CLIENT_SECRET;
-  const allowedTierId = process.env.PATREON_ALLOWED_TIER_ID;
+
+  // All three tier IDs — Silvermoon, Starfall, Bonded
+  const TIER_MAP = {
+    "26633221": "silvermoon",
+    "28589346": "starfall",
+    "28589553": "bonded"
+  };
+
+  // Creator account — always gets Bonded access
+  const CREATOR_ID = "182538518";
 
   try {
     const tokenResponse = await fetch("https://www.patreon.com/api/oauth2/token", {
@@ -33,12 +42,11 @@ exports.handler = async function (event) {
 
     const accessToken = tokenData.access_token;
 
-    const identityUrl =
-      "https://www.patreon.com/api/oauth2/v2/identity" +
-      "?include=memberships,memberships.currently_entitled_tiers" +
-      "&fields%5Buser%5D=full_name,email" +
-      "&fields%5Bmember%5D=patron_status" +
-      "&fields%5Btier%5D=title,amount_cents";
+    const identityUrl = "https://www.patreon.com/api/oauth2/v2/identity"
+      + "?include=memberships,memberships.currently_entitled_tiers"
+      + "&fields%5Buser%5D=full_name,email"
+      + "&fields%5Bmember%5D=patron_status"
+      + "&fields%5Btier%5D=title,amount_cents";
 
     const identityResponse = await fetch(identityUrl, {
       headers: { Authorization: "Bearer " + accessToken }
@@ -51,37 +59,77 @@ exports.handler = async function (event) {
       return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=error" } };
     }
 
-    const userName =
-      identityData.data &&
+    const userId = identityData.data && identityData.data.id;
+    const userName = identityData.data &&
       identityData.data.attributes &&
       identityData.data.attributes.full_name
         ? identityData.data.attributes.full_name
         : "Member";
 
+    // ── CREATOR BYPASS ──────────────────────────────────────
+    if (userId === CREATOR_ID) {
+      console.log("Creator account detected — granting Bonded access");
+      return {
+        statusCode: 302,
+        headers: {
+          Location: siteUrl
+            + "/?patreon=success"
+            + "&name=" + encodeURIComponent(userName)
+            + "&tier=bonded"
+            + "&token=" + encodeURIComponent(accessToken)
+        }
+      };
+    }
+
+    // ── MEMBER CHECK ────────────────────────────────────────
     const included = identityData.included || [];
 
-    // Active patrons only — no former members
-    const isActiveMember = included.some(function(item) {
+    // Check for active patron status
+    const isActiveMember = included.some(function (item) {
       return item.type === "member" &&
         item.attributes &&
         item.attributes.patron_status === "active_patron";
     });
 
-    // Check tier if PATREON_ALLOWED_TIER_ID is set
-    const hasTier = allowedTierId
-      ? included.some(function(item) { return item.type === "tier" && item.id === allowedTierId; })
-      : true;
+    // Find which tier they are on
+    let userTier = null;
+    included.forEach(function (item) {
+      if (item.type === "tier" && TIER_MAP[item.id]) {
+        userTier = TIER_MAP[item.id];
+      }
+    });
 
-    console.log("isActiveMember:", isActiveMember, "hasTier:", hasTier, "allowedTierId:", allowedTierId);
+    // Also check memberships for tier via relationships
+    if (!userTier) {
+      const members = included.filter(function (item) { return item.type === "member"; });
+      members.forEach(function (member) {
+        const tiers = member.relationships &&
+          member.relationships.currently_entitled_tiers &&
+          member.relationships.currently_entitled_tiers.data || [];
+        tiers.forEach(function (t) {
+          if (TIER_MAP[t.id]) userTier = TIER_MAP[t.id];
+        });
+      });
+    }
 
-    if (!isActiveMember || !hasTier) {
-      return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=error" } };
+    console.log("isActiveMember:", isActiveMember, "userTier:", userTier);
+
+    if (!isActiveMember || !userTier) {
+      console.log("Access denied — not an active patron with a valid tier");
+      return {
+        statusCode: 302,
+        headers: { Location: siteUrl + "/?patreon=notmember" }
+      };
     }
 
     return {
       statusCode: 302,
       headers: {
-        Location: siteUrl + "/?patreon=success&name=" + encodeURIComponent(userName)
+        Location: siteUrl
+          + "/?patreon=success"
+          + "&name=" + encodeURIComponent(userName)
+          + "&tier=" + userTier
+          + "&token=" + encodeURIComponent(accessToken)
       }
     };
 
