@@ -53,7 +53,7 @@ exports.handler = async function (event) {
       return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=error" } };
     }
 
-    const userId = identityData.data && identityData.data.id;
+    const userId = identityData.data?.id;
     const userName = identityData.data?.attributes?.full_name || "Member";
     let userTier = null;
 
@@ -85,52 +85,20 @@ exports.handler = async function (event) {
 
     console.log("SUCCESS - userTier:", userTier, "userName:", userName);
 
-    const sessionData = {
-      token: accessToken,
+    // Pass session as URL params — the index.html will read these
+    // This is the most reliable method — no localStorage cross-origin issues
+    const params = new URLSearchParams({
+      patreon: 'success',
       name: userName,
       tier: userTier,
-      expires: Date.now() + 7 * 24 * 60 * 60 * 1000
-    };
-
-    // Use a redirect with session data in URL hash (not query params)
-    // Hash is never sent to server so it persists through redirects
-    const sessionB64 = Buffer.from(JSON.stringify(sessionData)).toString('base64');
+      t: accessToken.substring(0, 20) // partial token as session key
+    });
 
     return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      body: `<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>Silvermoon Tales — Logging in</title>
-<style>body{background:#060710;color:#c8d4e8;font-family:Georgia,serif;display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:16px;margin:0;}
-.moon{width:60px;height:60px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#f0f4ff,#c8d4e8 40%,#8a9dc0);box-shadow:0 0 40px rgba(200,212,232,0.4);}
-p{font-style:italic;color:#6a7a94;font-size:16px;}
-.err{color:#c47a8a;font-size:13px;}</style>
-</head>
-<body>
-<div class="moon"></div>
-<p>Welcome, ${userName}. Entering your world...</p>
-<p class="err" id="err"></p>
-<script>
-(function(){
-  var session = ${JSON.stringify(sessionData)};
-  var saved = false;
-  try {
-    localStorage.setItem('sm_session', JSON.stringify(session));
-    var test = localStorage.getItem('sm_session');
-    if (test) saved = true;
-  } catch(e) {
-    document.getElementById('err').textContent = 'Storage error: ' + e.message;
-  }
-  if (saved) {
-    setTimeout(function(){ window.location.href = '/'; }, 800);
-  } else {
-    document.getElementById('err').textContent = 'Could not save session. Please enable cookies/storage and try again.';
-  }
-})();
-</script>
-</body>
-</html>`
+      statusCode: 302,
+      headers: {
+        Location: siteUrl + '/?' + params.toString()
+      }
     };
 
   } catch (error) {
