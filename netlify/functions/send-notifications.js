@@ -1,9 +1,7 @@
 const webpush = require('web-push');
 
-// Scheduled: runs every day at 2pm UTC (10am EST / 7am PST)
-exports.config = {
-  schedule: '0 14 * * *'
-};
+// Triggered via HTTP by cron-job.org — no longer uses Netlify scheduler
+// Call: GET /.netlify/functions/send-notifications?secret=YOUR_CRON_SECRET
 
 const CHAR_MESSAGES = {
   rhaeson: [
@@ -438,11 +436,18 @@ const CHAR_MESSAGES = {
 };
 
 exports.handler = async function(event) {
+  // Security: only allow requests with the correct secret token
+  const SECRET = process.env.CRON_SECRET;
+  const provided = (event.headers && event.headers['x-cron-secret']) ||
+                   (event.queryStringParameters && event.queryStringParameters.secret);
+  if (!SECRET || provided !== SECRET) {
+    return { statusCode: 401, body: 'Unauthorized' };
+  }
+
   const SUPABASE_URL = process.env.SUPABASE_URL;
-  const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+  const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
   const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
-  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
   webpush.setVapidDetails(
     'mailto:silvermoon.tales05@gmail.com',
@@ -451,13 +456,12 @@ exports.handler = async function(event) {
   );
 
   try {
-    // Fetch all active subscriptions
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/push_subscriptions?select=*`,
       {
         headers: {
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+          'apikey': SUPABASE_SERVICE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`
         }
       }
     );
@@ -469,7 +473,7 @@ exports.handler = async function(event) {
     }
 
     const today = new Date();
-    const dayOfMonth = today.getDate() - 1; // 0-indexed for array
+    const dayOfMonth = today.getDate() - 1;
 
     let sent = 0;
     let failed = 0;
@@ -482,7 +486,7 @@ exports.handler = async function(event) {
         const charName = charId.charAt(0).toUpperCase() + charId.slice(1);
 
         const payload = JSON.stringify({
-          title: 'Silvermoon Tales',
+          title: charName + ' — Silvermoon Tales',
           body: message,
           character: charName,
           icon: '/icon-192.png',
@@ -493,35 +497,33 @@ exports.handler = async function(event) {
         await webpush.sendNotification(
           {
             endpoint: sub.endpoint,
-            keys: {
-              p256dh: sub.p256dh,
-              auth: sub.auth
-            }
+            keys: { p256dh: sub.p256dh, auth: sub.auth }
           },
           payload
         );
         sent++;
       } catch(err) {
-        console.error('Failed to send to subscription:', err.statusCode, err.message);
-        // Remove invalid subscriptions (410 = subscription expired)
+        console.error('Failed to send:', err.statusCode, err.message);
         if (err.statusCode === 410 || err.statusCode === 404) {
           await fetch(
             `${SUPABASE_URL}/rest/v1/push_subscriptions?endpoint=eq.${encodeURIComponent(sub.endpoint)}`,
             {
               method: 'DELETE',
               headers: {
-                'apikey': SUPABASE_ANON_KEY,
-                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                'apikey': SUPABASE_SERVICE_KEY,
+                'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`
               }
             }
           );
+          console.log('Deleted expired subscription');
         }
         failed++;
       }
     }
 
-    console.log(`Notifications sent: ${sent}, failed: ${failed}`);
+    console.log(`Sent: ${sent}, Failed: ${failed}`);
     return { statusCode: 200, body: JSON.stringify({ sent, failed }) };
+
   } catch(err) {
     console.error('Send notifications error:', err);
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
