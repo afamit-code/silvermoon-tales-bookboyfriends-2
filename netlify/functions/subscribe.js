@@ -1,5 +1,4 @@
 exports.handler = async function(event) {
-  console.log('Subscribe function called, method:', event.httpMethod);
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method not allowed' };
   }
@@ -7,13 +6,9 @@ exports.handler = async function(event) {
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  console.log('SUPABASE_URL set:', !!SUPABASE_URL);
-  console.log('SUPABASE_SERVICE_KEY set:', !!SUPABASE_SERVICE_KEY);
-
   try {
     const body = JSON.parse(event.body);
     const { endpoint, p256dh, auth, user_tier, active_character, patreon_name } = body;
-    console.log('Parsed body, endpoint starts with:', endpoint ? endpoint.slice(0,30) : 'MISSING');
 
     if (!endpoint || !p256dh || !auth) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Missing subscription data' }) };
@@ -32,7 +27,6 @@ exports.handler = async function(event) {
     const existing = await checkRes.json();
 
     if (existing && existing.length > 0) {
-      console.log('Updating existing subscription for endpoint:', endpoint.slice(0,30));
       await fetch(
         `${SUPABASE_URL}/rest/v1/push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}`,
         {
@@ -46,8 +40,7 @@ exports.handler = async function(event) {
         }
       );
     } else {
-      console.log('Inserting new subscription, endpoint:', endpoint.slice(0,30));
-      const insertRes = await fetch(
+      await fetch(
         `${SUPABASE_URL}/rest/v1/push_subscriptions`,
         {
           method: 'POST',
@@ -60,9 +53,6 @@ exports.handler = async function(event) {
           body: JSON.stringify({ endpoint, p256dh, auth, user_tier, active_character, patreon_name })
         }
       );
-      console.log('Insert response status:', insertRes.status);
-      const insertBody = await insertRes.text();
-      console.log('Insert response body:', insertBody);
     }
 
     return {
