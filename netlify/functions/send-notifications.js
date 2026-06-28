@@ -473,14 +473,20 @@ exports.handler = async function(event) {
     }
 
     const today = new Date();
+    const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 86400000);
     const dayOfMonth = today.getDate() - 1;
+
+    // Rotate through all 13 characters — one per day, cycling every 13 days
+    const ROSTER = ['rhaeson','azrael','zayden','cass','rowan','blake',
+                    'dorian','darius','hunter','faye','nessa','viola','manon'];
+    const todaysCharId = ROSTER[dayOfYear % ROSTER.length];
 
     let sent = 0;
     let failed = 0;
 
     for (const sub of subscriptions) {
       try {
-        const charId = sub.active_character || 'rhaeson';
+        const charId = todaysCharId;
         const messages = CHAR_MESSAGES[charId] || CHAR_MESSAGES.rhaeson;
         const message = messages[dayOfMonth % messages.length];
         const charName = charId.charAt(0).toUpperCase() + charId.slice(1);
