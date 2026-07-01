@@ -1,10 +1,17 @@
 exports.handler = async function (event) {
   const code = event.queryStringParameters && event.queryStringParameters.code;
-  const siteUrl = "https://silvermoontalesbookboyfriends.netlify.app";
-  const redirectUri = siteUrl + "/.netlify/functions/patreon-callback";
+
+  // Use the SAME redirect_uri that patreon-login.js sent to Patreon.
+  // These must match exactly or the token exchange will fail / behave inconsistently.
+  const redirectUri = process.env.PATREON_REDIRECT_URI;
+
+  // Relative redirects — always stay on whatever domain actually served this request.
+  // No more hardcoded netlify.app URL to fall out of sync.
+  const errorRedirect = { statusCode: 302, headers: { Location: "/?patreon=error" } };
+  const notMemberRedirect = { statusCode: 302, headers: { Location: "/?patreon=notmember" } };
 
   if (!code) {
-    return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=error" } };
+    return errorRedirect;
   }
 
   const clientId = process.env.PATREON_CLIENT_ID;
@@ -26,7 +33,7 @@ exports.handler = async function (event) {
     const tokenData = await tokenResponse.json();
     if (!tokenResponse.ok || !tokenData.access_token) {
       console.error("Token exchange failed:", JSON.stringify(tokenData));
-      return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=error" } };
+      return errorRedirect;
     }
 
     const accessToken = tokenData.access_token;
@@ -52,7 +59,7 @@ exports.handler = async function (event) {
         i.type === "member" && i.attributes?.patron_status === "active_patron"
       );
       if (!isActive) {
-        return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=notmember" } };
+        return notMemberRedirect;
       }
       included.forEach(item => {
         if (item.type === "tier" && TIER_RANK[item.id] && TIER_RANK[item.id] > bestRank) {
@@ -69,7 +76,7 @@ exports.handler = async function (event) {
         });
       });
       if (!bestTier) {
-        return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=notmember" } };
+        return notMemberRedirect;
       }
     }
 
@@ -91,6 +98,8 @@ exports.handler = async function (event) {
       statusCode: 200,
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
+        // Prevent browsers / preload systems from caching or re-firing this response
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
         // Set cookie that the main page can read
         'Set-Cookie': `sm_session_b64=${sessionEncoded}; Path=/; Max-Age=604800; SameSite=Lax`
       },
@@ -120,6 +129,6 @@ window.location.replace('/');
 
   } catch (err) {
     console.error("Callback error:", err);
-    return { statusCode: 302, headers: { Location: siteUrl + "/?patreon=error" } };
+    return errorRedirect;
   }
 };
