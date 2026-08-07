@@ -83,7 +83,12 @@ exports.handler = async function (event) {
     console.log("SUCCESS - userTier:", bestTier, "userName:", userName);
 
     const session = {
-      token: accessToken.substring(0, 30),
+      // BUG FIX: previously used accessToken.substring(0,30) here, which changes
+      // on EVERY login even for the same person - any server-side data keyed by
+      // this value (cloud message backups, push notification targeting) became
+      // permanently orphaned every time someone had to log in again. userId is
+      // Patreon's actual account identifier and stays constant across logins.
+      token: userId,
       name: userName,
       tier: bestTier,
       expires: Date.now() + 7 * 24 * 60 * 60 * 1000
